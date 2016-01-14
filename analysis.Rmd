@@ -1,0 +1,142 @@
+---
+title: "Analysis of DNB Customer Data"
+author: "Nathaniel Reed"
+date: "January 13, 2016"
+output: html_document
+---
+
+# Data Preparation
+
+Load customer lists:
+```{r}
+customers <- data.frame()
+
+for (i in 1:11) {
+  filename <- paste(c("customers"),as.character(c(i)), ".csv", collapse="", sep="")
+  customers_i <- read.csv(filename, stringsAsFactors=FALSE)
+  customers <- rbind(customers, customers_i)
+}
+```
+
+Convert variables into appropriate types for modeling:
+
+```{r}
+# Make relevant variables factors
+customers[,c("Primary.City")] <- as.factor(customers[,c("Primary.City")])
+customers[,c("Primary.Zip")] <- as.factor(customers[,c("Primary.Zip")])
+customers[,c("Primary.Country")] <- as.factor(customers[,c("Primary.Country")])
+customers[,c("Line.Of.Business")] <- as.factor(customers[,c("Line.Of.Business")])
+customers[,c("Owns.Rents")] <- as.factor(customers[,c("Owns.Rents")])
+customers[,c("Is.Importer")] <- as.factor(customers[,c("Is.Importer")])
+customers[,c("Is.Exporter")] <- as.factor(customers[,c("Is.Exporter")])
+customers[,c("Company.Type")] <- as.factor(customers[,c("Company.Type")])
+customers[,c("Is.Subsidiary")] <- as.factor(customers[,c("Is.Subsidiary")])
+customers[,c("Location.Type")] <- as.factor(customers[,c("Location.Type")])
+customers[,c("Exchange")] <- as.factor(customers[,c("Exchange")])
+customers[,c("Is.Manufacturing")] <- as.factor(customers[,c("Is.Manufacturing")])
+customers[,c("Is.Women.Owned")] <- as.factor(customers[,c("Is.Women.Owned")])
+customers[,c("Is.Minority.Owned")] <- as.factor(customers[,c("Is.Minority.Owned")])
+customers[,c("D.B.Prescreen.Score")] <- as.factor(customers[,c("D.B.Prescreen.Score")])
+customers[,c("Primary.Industry")] <- as.factor(customers[,c("Primary.Industry")])
+customers[,c("Primary.US.SIC.Code")] <- as.factor(customers[,c("Primary.US.SIC.Code")])
+customers[,c("Primary.US.NAICS.Code")] <- as.factor(customers[,c("Primary.US.NAICS.Code")])
+customers[,c("Postal.Delivery.Point")] <- as.factor(customers[,c("Postal.Delivery.Point")])
+                                                    
+# Should be numeric, not character
+customers[,c("Revenue.Growth....")] <- as.numeric(customers[,c("Revenue.Growth....")])
+customers[,c("Income.Growth....")] <- as.numeric(customers[,c("Income.Growth....")])
+
+```
+
+Merge with Account data and convert sales variables to numeric type:
+
+```{r}
+accounts <- read.csv("customers.csv")
+accounts[,c("Sales2013")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2013))))
+accounts[,c("Sales2014")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2014))))
+
+```
+
+Many of these variables would not be useful as predictors (Duns #'s, lat/lon, street address, etc). To simplify our model, we'll select variables we're interested in and rename them for brevity. Also, we combine sales for 2013 to 2014 so we have one response variable to consider (combined_sales):
+
+```{r}
+library(dplyr)
+customer_accounts <- merge(accounts, customers, by.x = "DUNS", by.y = "D.U.N.S.Number")
+customer_accounts <- select(customer_accounts, 
+                            sales2013=Sales2013,
+                            sales2014=Sales2014,
+                            total_assets=Total.Assets..US.Dollars..million., 
+                            market_value=Market.Value..US.Dollars..million.,
+                            total_empl=Total.Employees, 
+                            empl_growth=Employee.Growth....,
+                            sic=Primary.US.SIC.Code, 
+                            city=Primary.City,
+                            revenue_growth=Revenue.Growth....,
+                            revenue=Revenue..US.Dollars..million.,
+                            net_income=Net.Income..US.Dollars..million.,                 
+                            income_growth=Income.Growth....,
+                            is_manufacturing=Is.Manufacturing,
+                            is_women_owned=Is.Women.Owned,
+                            is_minority_owned=Is.Minority.Owned,
+                            db_pre_screen=D.B.Prescreen.Score,
+                            line_of_business=Line.Of.Business,
+                            owns_rents=Owns.Rents,
+                            is_importer=Is.Importer,
+                            is_exporter=Is.Exporter,
+                            company_type=Company.Type,
+                            is_subsidiary=Is.Subsidiary,
+                            location_type=Location.Type,
+                            employees_at_this_location=Employees.At.This.Location) %>%
+  mutate(combined_sales=sales2013+sales2014)
+```
+
+# Exploratory Analysis
+
+```{r}
+summary(customer_accounts)
+```
+
+
+# Table plot
+
+A somewhat useful visualization is the table plot, which divides the rows of data into bins and sorts the rows based on a single variable. We can sort the data on combined_sales to see if any relationships are apparent:
+
+```{r}
+require(tabplot)
+tableplot(customer_accounts, select=c(combined_sales, empl_growth, revenue_growth, is_manufacturing, is_women_owned, is_minority_owned, db_pre_screen, total_empl, is_importer, is_exporter), sortCol=combined_sales)
+```
+
+# Financial predictors
+What are the relationships between financial metrics like market value, net income, revenue and sales?
+
+```{r}
+pairs(~combined_sales + revenue + net_income + market_value, data=customer_accounts)
+```
+
+Among the scatterplots above, we find what looks like an interesting relationship between market value and sales. We can plot these and fit a regression line through the points:
+
+```{r}
+plot(customer_accounts$market_value, 
+     customer_accounts$combined_sales, 
+     xlab="Market value (USD)",
+     ylab="Combined Sales (USD)",
+     main="Market Value vs. Combined Sales (2013, 2014) in USD")
+modFit <- lm(combined_sales~market_value, data=customer_accounts)
+abline(modFit)
+```
+
+There are many companies with high sales but low market value. The model's low R-squared value indicates that much of the variance in sales is not due to market value alone.
+
+# Does growth predict sales?
+
+Do employee and revenue growth drive overall sales volume? The answer seems to be "no".  Established companies with low or no growth tend to account for greatest sales volume:
+
+```{r}
+pairs(~combined_sales + empl_growth + revenue_growth, data=customer_accounts)
+```
+
+If we create a regression model, it shows a negative relationship between employee growth and sales, and between revenue growth and sales:
+```{r}
+modFit <- lm(combined_sales ~ empl_growth + revenue_growth, data=customer_accounts)
+summary(modFit)
+```
