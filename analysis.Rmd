@@ -181,7 +181,12 @@ sales_by_primary_industry[1:10,c("primary_industry", "sales")]
 
 ## 2.5: Top 10 Cities for Sales
 
-TBD
+```{r}
+by_city <- group_by(customer_accounts, primary_city)
+sales_by_city <- summarize(by_city, sales=sum(combined_sales))
+sales_by_city <- arrange(sales_by_city, desc(sales))
+sales_by_city[1:10,c("primary_city", "sales")]
+```
 
 # Part 3: Modeling
 

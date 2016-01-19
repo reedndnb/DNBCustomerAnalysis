@@ -298,7 +298,24 @@ sales_by_primary_industry[1:10,c(&quot;primary_industry&quot;, &quot;sales&quot;
 </div>
 <div id="top-10-cities-for-sales" class="section level2">
 <h2>2.5: Top 10 Cities for Sales</h2>
-<p>TBD</p>
+<pre class="r"><code>by_city &lt;- group_by(customer_accounts, primary_city)
+sales_by_city &lt;- summarize(by_city, sales=sum(combined_sales))
+sales_by_city &lt;- arrange(sales_by_city, desc(sales))
+sales_by_city[1:10,c(&quot;primary_city&quot;, &quot;sales&quot;)]</code></pre>
+<pre><code>## Source: local data frame [10 x 2]
+## 
+##    primary_city    sales
+##          (fctr)    (dbl)
+## 1      New York 33657252
+## 2       Houston 28313318
+## 3       Chicago 18374783
+## 4       Atlanta 14058292
+## 5    Washington 11469350
+## 6        Dallas 11312659
+## 7  Philadelphia  8409997
+## 8   Saint Louis  7139921
+## 9     Cleveland  7064216
+## 10       Boston  6650718</code></pre>
 </div>
 </div>
 <div id="part-3-modeling" class="section level1">
