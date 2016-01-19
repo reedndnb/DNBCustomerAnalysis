@@ -1,13 +1,20 @@
 ---
-title: "Analysis of DNB Customer Data"
+title: "Analysis of Hoovers Customer Data"
 author: "Nathaniel Reed"
 date: "January 13, 2016"
 output: html_document
 ---
 
-# Data Preparation
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
 
-Load customer lists:
+# Part 1: Prepare Data
+
+Customer sales data ("Account Data") was split into 11 files, which were used to build customer lists. These files will be merged with the original customer data below:
+
+## 1.1 Load Customer Lists
+
 ```{r}
 customers <- data.frame()
 
@@ -18,9 +25,9 @@ for (i in 1:11) {
 }
 ```
 
-Convert variables into appropriate types for modeling:
+## 1.2 Convert variable types:
 
-```{r}
+```{r, warning=FALSE}
 # Make relevant variables factors
 customers[,c("Primary.City")] <- as.factor(customers[,c("Primary.City")])
 customers[,c("Primary.Zip")] <- as.factor(customers[,c("Primary.Zip")])
@@ -48,65 +55,77 @@ customers[,c("Income.Growth....")] <- as.numeric(customers[,c("Income.Growth....
 
 ```
 
-Merge with Account data and convert sales variables to numeric type:
+## 1.3 Merge with Accounts
 
-```{r}
+Merge with account data and convert sales variables to numeric type:
+
+```{r, warning=FALSE}
 accounts <- read.csv("customers.csv")
 accounts[,c("Sales2013")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2013))))
 accounts[,c("Sales2014")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2014))))
-
+customer_accounts <- merge(accounts, customers, by.x = "DUNS", by.y = "D.U.N.S.Number")
 ```
 
-Many of these variables would not be useful as predictors (Duns #'s, lat/lon, street address, etc). To simplify our model, we'll select variables we're interested in and rename them for brevity. Also, we combine sales for 2013 to 2014 so we have one response variable to consider (combined_sales):
+## 1.4 Replace Missing Values
 
-```{r}
+For sales figures, we replace missing values with zeroes:
+```{r, warning=FALSE}
 library(dplyr)
-customer_accounts <- merge(accounts, customers, by.x = "DUNS", by.y = "D.U.N.S.Number")
-customer_accounts <- select(customer_accounts, 
-                            sales2013=Sales2013,
-                            sales2014=Sales2014,
-                            total_assets=Total.Assets..US.Dollars..million., 
-                            market_value=Market.Value..US.Dollars..million.,
-                            total_empl=Total.Employees, 
-                            empl_growth=Employee.Growth....,
-                            sic=Primary.US.SIC.Code, 
-                            city=Primary.City,
-                            revenue_growth=Revenue.Growth....,
-                            revenue=Revenue..US.Dollars..million.,
-                            net_income=Net.Income..US.Dollars..million.,                 
-                            income_growth=Income.Growth....,
-                            is_manufacturing=Is.Manufacturing,
-                            is_women_owned=Is.Women.Owned,
-                            is_minority_owned=Is.Minority.Owned,
-                            db_pre_screen=D.B.Prescreen.Score,
-                            line_of_business=Line.Of.Business,
-                            owns_rents=Owns.Rents,
-                            is_importer=Is.Importer,
-                            is_exporter=Is.Exporter,
-                            company_type=Company.Type,
-                            is_subsidiary=Is.Subsidiary,
-                            location_type=Location.Type,
-                            employees_at_this_location=Employees.At.This.Location) %>%
+customer_accounts <- customer_accounts %>% mutate(Sales2013 = ifelse(is.na(Sales2013), 0, Sales2013))
+customer_accounts <- customer_accounts %>% mutate(Sales2014 = ifelse(is.na(Sales2014), 0, Sales2014))
+```
+
+## 1.5 Remove extraneous variables
+
+Many of these variables would not be useful as predictors (Duns #'s, street address, etc). To simplify our model, we'll select variables we're interested in and rename them for brevity. Also, we combine sales for 2013 to 2014 so we have one response variable to consider (combined_sales):
+
+```{r, warning=FALSE}
+customer_accounts <- dplyr::select(customer_accounts,
+                                   sales2013=Sales2013,
+                                   sales2014=Sales2014,
+                                   total_assets=Total.Assets..US.Dollars..million.,
+                                   market_value=Market.Value..US.Dollars..million.,
+                                   total_empl=Total.Employees,
+                                   empl_growth=Employee.Growth....,
+                                   primary_sic=Primary.US.SIC.Code, 
+                                   primary_industry=Primary.Industry,
+                                   primary_city=Primary.City,
+                                   revenue_growth=Revenue.Growth....,
+                                   revenue=Revenue..US.Dollars..million.,
+                                   net_income=Net.Income..US.Dollars..million.,
+                                   income_growth=Income.Growth....,
+                                   is_manufacturing=Is.Manufacturing,
+                                   is_women_owned=Is.Women.Owned,
+                                   is_minority_owned=Is.Minority.Owned,
+                                   db_pre_screen=D.B.Prescreen.Score,
+                                   line_of_business=Line.Of.Business,
+                                   owns_rents=Owns.Rents,
+                                   is_importer=Is.Importer,
+                                   is_exporter=Is.Exporter,
+                                   company_type=Company.Type,
+                                   is_subsidiary=Is.Subsidiary,
+                                   location_type=Location.Type,
+                                   employees_at_this_location=Employees.At.This.Location) %>%
   mutate(combined_sales=sales2013+sales2014)
 ```
 
-# Exploratory Analysis
+# Part 2: Exploratory Analysis
 
-```{r}
+## 2.1: Summary of data
+```{r, warning=FALSE}
 summary(customer_accounts)
 ```
 
+## 2.2: Table plot
 
-# Table plot
-
-A somewhat useful visualization is the table plot, which divides the rows of data into bins and sorts the rows based on a single variable. We can sort the data on combined_sales to see if any relationships are apparent:
+A potentially useful visualization is the table plot, which divides the rows of data into bins and sorts the rows based on a single variable. We can sort the data on combined_sales to see if any relationships are apparent. Due to limitations on rendering the data, I omitted variables with high cardinality and limited the number of variables: 
 
 ```{r}
 require(tabplot)
-tableplot(customer_accounts, select=c(combined_sales, empl_growth, revenue_growth, is_manufacturing, is_women_owned, is_minority_owned, db_pre_screen, total_empl, is_importer, is_exporter), sortCol=combined_sales)
+tableplot(customer_accounts, select=c(combined_sales, empl_growth, revenue_growth, total_assets, is_manufacturing, is_women_owned, is_minority_owned, db_pre_screen, total_empl, is_importer, is_exporter), sortCol=combined_sales)
 ```
 
-# Financial predictors
+## 2.3: Financial predictors
 What are the relationships between financial metrics like market value, net income, revenue and sales?
 
 ```{r}
@@ -125,9 +144,9 @@ modFit <- lm(combined_sales~market_value, data=customer_accounts)
 abline(modFit)
 ```
 
-There are many companies with high sales but low market value. The model's low R-squared value indicates that much of the variance in sales is not due to market value alone.
+There are many companies with high sales but low market value. The model's low R-squared value indicates that much of the variance in sales is not due to market value alone, so we would need to consider other variables as well.
 
-# Does growth predict sales?
+## 2.4: Does growth predict sales?
 
 Do employee and revenue growth drive overall sales volume? The answer seems to be "no".  Established companies with low or no growth tend to account for greatest sales volume:
 
@@ -135,8 +154,68 @@ Do employee and revenue growth drive overall sales volume? The answer seems to b
 pairs(~combined_sales + empl_growth + revenue_growth, data=customer_accounts)
 ```
 
-If we create a regression model, it shows a negative relationship between employee growth and sales, and between revenue growth and sales:
-```{r}
+There seems to be a slightly negative relationship between employee growth and sales, and between revenue growth and sales:
+
+```{r, warning=FALSE}
 modFit <- lm(combined_sales ~ empl_growth + revenue_growth, data=customer_accounts)
 summary(modFit)
+plot(combined_sales ~ empl_growth, data=customer_accounts, main="Sales vs. Employee Growth")
+abline(lm(combined_sales~empl_growth, data=customer_accounts))
 ```
+
+```{r, warning=FALSE}
+plot(combined_sales ~ revenue_growth, data=customer_accounts, main="Sales vs. Revenue Growth")
+abline(lm(combined_sales~revenue_growth, data=customer_accounts))
+```
+
+When we fit a regression model, we will see whether this relationship holds up in the context of other variables.
+
+## 2.4: Top 10 Industries for Sales
+
+```{r, warning=FALSE}
+by_primary_industry <- group_by(customer_accounts, primary_industry)
+sales_by_primary_industry <- summarize(by_primary_industry, sales=sum(combined_sales))
+sales_by_primary_industry <- arrange(sales_by_primary_industry, desc(sales))
+sales_by_primary_industry[1:10,c("primary_industry", "sales")]
+```
+
+## 2.5: Top 10 Cities for Sales
+
+TBD
+
+# Part 3: Modeling
+
+## 3.1 Build Linear Regression model
+
+We use stepwise linear regression to find a model that includes as many of the relevant variables needed to account for variance in combined sales. We start with the "null" model and step through additional predictors to find the best fit:
+
+```{r, warning=FALSE, message=FALSE}
+
+# Stepwise Linear regression
+library(MASS)
+null <- lm(combined_sales ~ 1, data=na.omit(customer_accounts))
+full <- lm(combined_sales ~ total_assets + market_value + net_income + revenue_growth + empl_growth + primary_industry + primary_city + is_manufacturing + is_minority_owned + db_pre_screen + is_importer + owns_rents + company_type + is_subsidiary + location_type + employees_at_this_location, 
+            data=na.omit(customer_accounts))
+modFit <- step(null, scope=list(lower=null, upper=full), direction="forward")
+```
+
+The output of step() shows the most important predictors are total_assets, market_value, revenue_growth and is_importer.
+
+If we summarize the model, we see that total_assets, market_value and is_importer are positively related to sales, while revenue_growth is inversely related, as we conjectured in our exploratory analysis from Part 2.
+
+```{r, warning=FALSE}
+summary(modFit)
+```
+
+## 3.2 Analyze Model Fit
+
+Analaysis of Variance (Anova):
+```{r, warning=FALSE}
+modFit$anova
+```
+
+Plots:
+```{r, warning=FALSE}
+plot(modFit)
+```
+

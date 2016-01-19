@@ -31,13 +31,21 @@ customers[,c("Postal.Delivery.Point")] <- as.factor(customers[,c("Postal.Deliver
 customers[,c("Revenue.Growth....")] <- as.numeric(customers[,c("Revenue.Growth....")])
 customers[,c("Income.Growth....")] <- as.numeric(customers[,c("Income.Growth....")])
 
-# Merge with account data
+# Get customer accounts (with sales)
 accounts <- read.csv("customers.csv")
 accounts[,c("Sales2013")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2013))))
 accounts[,c("Sales2014")] <- as.numeric(sub(",","", (sub("\\$","", accounts$Sales2014))))
 
 library(dplyr)
+
+# Merge with customer list
 customer_accounts <- merge(accounts, customers, by.x = "DUNS", by.y = "D.U.N.S.Number")
+
+# Replace missing values for sales with 0's
+customer_accounts <- customer_accounts %>% mutate(Sales2013 = ifelse(is.na(Sales2013), 0, Sales2013))
+customer_accounts <- customer_accounts %>% mutate(Sales2014 = ifelse(is.na(Sales2014), 0, Sales2014))
+
+# Merge with account data
 customer_accounts <- select(customer_accounts, 
                             sales2013=Sales2013,
                             sales2014=Sales2014,
@@ -45,8 +53,9 @@ customer_accounts <- select(customer_accounts,
                             market_value=Market.Value..US.Dollars..million.,
                             total_empl=Total.Employees, 
                             empl_growth=Employee.Growth....,
-                            sic=Primary.US.SIC.Code, 
-                            city=Primary.City,
+                            primary_sic=Primary.US.SIC.Code, 
+                            primary_industry=Primary.Industry,
+                            primary_city=Primary.City,
                             revenue_growth=Revenue.Growth....,
                             revenue=Revenue..US.Dollars..million.,
                             net_income=Net.Income..US.Dollars..million.,                 
@@ -64,6 +73,8 @@ customer_accounts <- select(customer_accounts,
                             location_type=Location.Type,
                             employees_at_this_location=Employees.At.This.Location) %>%
   mutate(combined_sales=sales2013+sales2014)
+customer_accounts$sales2013 <- NULL
+customer_accounts$sales2014 <- NULL
 
 # Plot pairs
 #pairs(subset)
@@ -74,15 +85,42 @@ pairs(~combined_sales + revenue + net_income + market_value, data=customer_accou
 plot(customer_accounts$market_value, 
      customer_accounts$combined_sales, 
      xlab="Market value (USD)", 
-     ylab="Combined Sales (USD)"
+     ylab="Combined Sales (USD)",
      main="Market Value vs. Combined Sales (2013, 2014) in USD")
-modFit <- lm(combined_sales~market_value)
+modFit <- lm(combined_sales~market_value, data=customer_accounts)
 abline(modFit)
+
 
 # Do we sell more to fast-growing companies than slow-growing companies?
 
 # Which industries (SIC) have the highest sales? Are particular types of businesses (Is.Manufacturing, Is.Women.Owned, Is.Minority.Owned)
 # predictive of sales?
 
+by_primary_industry <- group_by(customer_accounts, primary_industry)
+sales_by_primary_industry <- summarize(by_primary_industry, sales=sum(combined_sales))
+sales_by_primary_industry <- arrange(sales_by_primary_industry, desc(sales))
+sales_by_primary_industry[1:10,c("primary_industry", "sales")]
+
+
 # Which cities have the highest sales?
+
+# Model
+# Partition data
+InTrain<-createDataPartition(y=customer_accounts$combined_sales,p=0.7,list=FALSE)
+training_subset <- customer_accounts[InTrain,]
+testing_subset <- customer_accounts[-InTrain,]
+
+# Register multiple processors
+library(doMC)
+registerDoMC(5)
+
+# Random Forest model
+#modFit <- train(combined_sales~., data=training_subset, method="rf", trControl=trainControl(method="cv", number=5), prox=TRUE, allowParallel=TRUE, importance=TRUE)
+#varImp(modFit)
+
+# Stepwise Linear regression
+
+lmFit <- lm(combined_sales ~ total_assets + market_value + net_income + revenue_growth + empl_growth + primary_industry + primary_city + is_manufacturing + is_minority_owned + db_pre_screen + is_importer + owns_rents + company_type + is_subsidiary + location_type + employees_at_this_location + is_women_owned, data=na.omit(customer_accounts))
+step <- stepAIC(lmFit, direction="both")
+step$anova
 
